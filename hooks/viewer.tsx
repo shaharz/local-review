@@ -211,7 +211,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
         </Text>
       )}
       <Text dimColor wrap="truncate-end">
-        {s.edit !== null ? 'enter save · ✕ or enter on empty cancels · ctrl+u clear' : s.mode === 'files' ? 'j/k move · enter open · f back' : HINTS}
+        {s.edit !== null ? 'enter save · ctrl+g or ✕ cancel · ctrl+u clear' : s.mode === 'files' ? 'j/k move · enter open · f back' : HINTS}
       </Text>
     </Box>
   )

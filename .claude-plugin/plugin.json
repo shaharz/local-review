@@ -1,6 +1,6 @@
 {
   "name": "local-review",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Review a local diff in a pane with inline comments and suggestions, then send them to Claude",
   "author": { "name": "Shahar Zaks", "url": "https://github.com/shaharz" },
   "repository": "https://github.com/shaharz/local-review",
