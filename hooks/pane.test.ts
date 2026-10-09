@@ -100,3 +100,20 @@ test('s suggests a replacement prefilled with the line, P puts it in the prompt'
   expect(filled).toHaveLength(1)
   expect(filled[0]).toContain('- **L2 suggestion**: replace `new line` with:\n  ```\n  new lin\n  ```')
 })
+
+test('the cancel button drops a comment being typed', async ($, on) => {
+  fakeEngine(on)
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  for (const k of ['j', 'j', 'j', 'c', 'h', 'i']) await ui.key({ key: k, in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: /comment> hi/ })).toBeDefined()
+  await ui.press({ key: 'cancel' })
+
+  expect(await ui.find({ in: 'viewer', text: /comment> / })).toBeUndefined()
+  expect(await ui.find({ in: 'viewer', key: 'cancel' })).toBeUndefined()
+  await ui.key({ key: 'return', in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: '◆' })).toBeUndefined()
+})

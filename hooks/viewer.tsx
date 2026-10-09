@@ -55,7 +55,7 @@ function pad(n: number | undefined, width: number): string {
 }
 
 const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<State>) => {
-  const { Box, Text } = surface.elements
+  const { Box, Button, Text } = surface.elements
   const s0 = surface.state
   const rowCount = props.file?.rows.length ?? 0
   const base = s0 !== undefined && s0.fileIndex === props.fileIndex ? s0 : initial(props)
@@ -86,6 +86,11 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
     surface.setState(scrolled({ ...s, cursor }))
   }
 
+  const cancelEdit = () => {
+    surface.setState({ ...s, edit: null })
+    post({ type: 'editing', on: false })
+  }
+
   const startEdit = (kind: Edit['kind']) => {
     const row = props.file?.rows[s.cursor]
     if (kind !== 'file' && !isCodeRow(row)) return
@@ -111,10 +116,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
 
   const onEditKey = (edit: Edit, key: ClientKeyEvent) => {
     const set = (next: Edit | null) => surface.setState({ ...s, edit: next })
-    const cancel = () => {
-      set(null)
-      post({ type: 'editing', on: false })
-    }
+    const cancel = cancelEdit
     const { text, pos } = edit
 
     if (key.key === 'return' || key.key === 'enter') {
@@ -192,19 +194,24 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
   const footer = (
     <Box flexDirection="column">
       {s.edit !== null ? (
-        <Text wrap="truncate-start">
-          <Text color="claude">{s.edit.kind === 'suggest' ? 'suggest> ' : s.edit.kind === 'file' ? 'file comment> ' : 'comment> '}</Text>
-          {s.edit.text.slice(0, s.edit.pos)}
-          <Text inverse>{s.edit.text[s.edit.pos] ?? ' '}</Text>
-          {s.edit.text.slice(s.edit.pos + 1)}
-        </Text>
+        <Box flexDirection="row">
+          <Box flexGrow={1} flexShrink={1}>
+            <Text wrap="truncate-start">
+              <Text color="claude">{s.edit.kind === 'suggest' ? 'suggest> ' : s.edit.kind === 'file' ? 'file comment> ' : 'comment> '}</Text>
+              {s.edit.text.slice(0, s.edit.pos)}
+              <Text inverse>{s.edit.text[s.edit.pos] ?? ' '}</Text>
+              {s.edit.text.slice(s.edit.pos + 1)}
+            </Text>
+          </Box>
+          <Button key="cancel" label="✕ cancel" onPress={cancelEdit} />
+        </Box>
       ) : (
         <Text dimColor wrap="truncate-end">
           {props.total} comment(s) · {props.label} · click here to use keys
         </Text>
       )}
       <Text dimColor wrap="truncate-end">
-        {s.edit !== null ? 'enter save · esc cancel · ctrl+u clear' : s.mode === 'files' ? 'j/k move · enter open · f back' : HINTS}
+        {s.edit !== null ? 'enter save · ✕ or enter on empty cancels · ctrl+u clear' : s.mode === 'files' ? 'j/k move · enter open · f back' : HINTS}
       </Text>
     </Box>
   )

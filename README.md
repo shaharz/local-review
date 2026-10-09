@@ -37,7 +37,7 @@ Click the diff once to give it the keyboard, then:
 | `P` | put the comments in the prompt instead |
 | `q` | close the pane |
 
-While typing a comment: Enter saves, Esc cancels (it may take two presses), ctrl+u clears.
+While typing a comment: Enter saves; click **✕ cancel** (or press Enter on empty text) to cancel; ctrl+u clears. Esc can't reach the pane: it hands the keyboard back to the prompt and leaves the comment open.
 
 The diff refreshes after each Claude turn while the pane is open. Works in the terminal and the desktop app; not in VS Code or mobile.
 
