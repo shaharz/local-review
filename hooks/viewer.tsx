@@ -21,6 +21,7 @@ const SPECIAL = new Set([
   'up', 'down', 'left', 'right', 'return', 'enter', 'tab', 'backspace', 'delete',
   'pageup', 'pagedown', 'home', 'end', 'escape',
 ])
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
 
 const HINTS = 'j/k move  ]/[ file  f files  c comment  C file  s suggest  x delete  r refresh  S send  P to prompt  q close'
 
@@ -125,7 +126,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
         commit(edit)
         set(null)
       }
-    } else if (key.ctrl && (key.key === 'c' || key.key === 'g')) cancel()
+    } else if (key.key === 'escape' || key.key === 'esc' || key.key === '\u001b' || (key.ctrl && (key.key === 'c' || key.key === 'g'))) cancel()
     else if (key.ctrl && key.key === 'u') set({ ...edit, text: '', pos: 0 })
     else if (key.key === 'home' || (key.ctrl && key.key === 'a')) set({ ...edit, pos: 0 })
     else if (key.key === 'end' || (key.ctrl && key.key === 'e')) set({ ...edit, pos: text.length })
@@ -134,8 +135,9 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
     else if (key.key === 'backspace' && pos > 0) set({ ...edit, text: text.slice(0, pos - 1) + text.slice(pos), pos: pos - 1 })
     else if (key.key === 'delete' && pos < text.length) set({ ...edit, text: text.slice(0, pos) + text.slice(pos + 1) })
     else if (!key.ctrl && !key.meta && (key.key === 'space' || !SPECIAL.has(key.key))) {
-      const typed = key.key === 'space' ? ' ' : key.key
-      set({ ...edit, text: text.slice(0, pos) + typed + text.slice(pos), pos: pos + typed.length })
+      // Unparsed sequences (a lone Esc, alt+key) arrive as raw bytes; Text rejects control characters.
+      const typed = key.key === 'space' ? ' ' : key.key.replace(CONTROL, '')
+      if (typed !== '') set({ ...edit, text: text.slice(0, pos) + typed + text.slice(pos), pos: pos + typed.length })
     }
   }
 

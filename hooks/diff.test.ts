@@ -27,6 +27,11 @@ const DIFF = [
 ].join('\n')
 
 describe('parseDiff', () => {
+  test('shows control bytes as control pictures, keeping tabs', () => {
+    const [file] = parseDiff('diff --git a/x b/x\n@@ -1 +1 @@\n+\u001b[31mred\tx\r\n')
+    expect(file?.rows[1]).toEqual({ k: 'add', t: '␛[31mred\tx␍', n: 1 })
+  })
+
   test('reads files, statuses and line numbers', () => {
     const [a, added, renamed] = parseDiff(DIFF)
     expect(a).toEqual({

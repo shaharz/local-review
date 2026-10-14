@@ -117,3 +117,16 @@ test('the cancel button drops a comment being typed', async ($, on) => {
   await ui.key({ key: 'return', in: 'viewer' })
   expect(await ui.find({ in: 'viewer', text: '◆' })).toBeUndefined()
 })
+
+test('Esc arriving as a raw byte cancels a comment; other control bytes are not typed', async ($, on) => {
+  fakeEngine(on)
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  for (const k of ['j', 'j', 'j', 'c', 'h', '\u001b[1;3A', 'i']) await ui.key({ key: k, in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: /comment> h\[1;3Ai/ })).toBeDefined()
+  await ui.key({ key: '\u001b', in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: /comment> / })).toBeUndefined()
+})

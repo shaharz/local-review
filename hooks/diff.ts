@@ -45,6 +45,13 @@ function stripPrefix(path: string): string {
   return path.replace(/^[ab]\//, '')
 }
 
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g
+
+/** Shows control bytes (ANSI escapes, CR) as their Unicode control pictures, since Text rejects them; keeps tabs. */
+function visible(line: string): string {
+  return line.replace(CONTROL, c => (c === '\u007f' ? '\u2421' : String.fromCharCode(0x2400 + c.charCodeAt(0))))
+}
+
 /** Parses `git diff`/`git show` output into files of display rows. */
 export function parseDiff(text: string): FileDiff[] {
   const files: FileDiff[] = []
@@ -53,7 +60,7 @@ export function parseDiff(text: string): FileDiff[] {
   let n = 0
   let inHunk = false
 
-  for (const line of text.split('\n')) {
+  for (const line of text.split('\n').map(visible)) {
     if (line.startsWith('diff --git ')) {
       const m = /^diff --git a\/(.+) b\/(.+)$/.exec(line)
       const next: FileDiff = { path: m?.[2] ?? line.slice(11), status: 'modified', rows: [] }
