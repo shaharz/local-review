@@ -32,9 +32,21 @@ export type Review = {
   error?: string
 }
 
+/** One open review: a repo and target, with the comments not yet sent and the file in view. */
+export type ReviewTab = {
+  id: string
+  review: Review
+  comments: ReviewComment[]
+  fileIndex: number
+}
+
 export type ViewerFile = { path: string; status: FileStatus; comments: number }
 
+export type ViewerTab = { id: string; title: string; comments: number }
+
 export type ViewerProps = {
+  tab: string
+  tabs: ViewerTab[]
   label: string
   fileIndex: number
   files: ViewerFile[]
@@ -53,13 +65,14 @@ export type ViewerMessage =
   | { type: 'send'; mode: 'submit' | 'fill' }
   | { type: 'close' }
   | { type: 'editing'; on: boolean }
+  | { type: 'tab'; id: string }
+  | { type: 'closeTab' }
 
 declare module 'claude-code' {
   interface PluginState {
     'local-review': {
-      review: Review | null
-      comments: ReviewComment[]
-      fileIndex: number
+      tabs: ReviewTab[]
+      active: string
       isOpen: boolean
       isEditing: boolean
       cancelSeq: number

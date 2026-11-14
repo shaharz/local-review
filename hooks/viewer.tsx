@@ -5,10 +5,11 @@ import { isOnRow } from './diff'
 
 type Edit = { kind: 'comment' | 'suggest' | 'file'; row: number; text: string; pos: number }
 
-type State = {
-  fileIndex: number
-  cursor: number
-  top: number
+type Place = { fileIndex: number; cursor: number; top: number }
+
+type State = Place & {
+  tab: string
+  places: Record<string, Place>
   mode: 'diff' | 'files'
   fileCursor: number
   edit: Edit | null
@@ -24,9 +25,34 @@ const SPECIAL = new Set([
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
 
 const HINTS = 'j/k move  ]/[ file  f files  c comment  C file  s suggest  x delete  r refresh  S send  P to prompt  q close'
+const TAB_TITLE = 28
 
 function initial(props: ViewerProps): State {
-  return { fileIndex: props.fileIndex, cursor: 0, top: 0, mode: 'diff', fileCursor: props.fileIndex, edit: null, cancelSeq: props.cancelSeq }
+  return {
+    tab: props.tab,
+    places: {},
+    fileIndex: props.fileIndex,
+    cursor: 0,
+    top: 0,
+    mode: 'diff',
+    fileCursor: props.fileIndex,
+    edit: null,
+    cancelSeq: props.cancelSeq,
+  }
+}
+
+/** The state for the tab in view: kept while it stays on its file, else restarted from where the tab was left. */
+function resume(s0: State | undefined, props: ViewerProps): State {
+  if (s0 === undefined) return initial(props)
+  if (s0.tab === props.tab) return s0.fileIndex === props.fileIndex ? s0 : { ...initial(props), places: s0.places }
+  const places = { ...s0.places, [s0.tab]: { fileIndex: s0.fileIndex, cursor: s0.cursor, top: s0.top } }
+  const left = places[props.tab]
+
+  return { ...initial(props), ...(left !== undefined && left.fileIndex === props.fileIndex ? left : {}), places }
+}
+
+function clip(text: string, width: number): string {
+  return text.length > width ? `${text.slice(0, Math.max(1, width - 1))}…` : text
 }
 
 function lines(props: ViewerProps): Line[] {
@@ -57,9 +83,9 @@ function pad(n: number | undefined, width: number): string {
 
 const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<State>) => {
   const { Box, Button, Text } = surface.elements
-  const s0 = surface.state
   const rowCount = props.file?.rows.length ?? 0
-  const base = s0 !== undefined && s0.fileIndex === props.fileIndex ? s0 : initial(props)
+  const base = resume(surface.state, props)
+  const hasTabs = props.tabs.length > 1
   const s: State = {
     ...base,
     cursor: Math.min(base.cursor, Math.max(0, rowCount - 1)),
@@ -68,7 +94,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
   }
   const all = lines(props)
   const height = surface.rows > 0 ? surface.rows : 20
-  const bodyRows = Math.max(1, height - 3)
+  const bodyRows = Math.max(1, height - (hasTabs ? 4 : 3))
 
   const post = (msg: ViewerMessage) => surface.post(msg)
 
@@ -90,6 +116,12 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
   const cancelEdit = () => {
     surface.setState({ ...s, edit: null })
     post({ type: 'editing', on: false })
+  }
+
+  const showTab = (id: string | undefined) => {
+    if (id === undefined || id === props.tab) return
+    surface.setState({ ...s, edit: null })
+    post({ type: 'tab', id })
   }
 
   const startEdit = (kind: Edit['kind']) => {
@@ -164,6 +196,8 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
     else if ((k === ']' || k === 'n') && props.fileIndex < props.files.length - 1) post({ type: 'file', index: props.fileIndex + 1 })
     else if ((k === '[' || k === 'p') && props.fileIndex > 0) post({ type: 'file', index: props.fileIndex - 1 })
     else if (k === 'f') surface.setState({ ...s, mode: 'files', fileCursor: props.fileIndex })
+    else if (hasTabs && k >= '1' && k <= '9' && k.length === 1) showTab(props.tabs[Number(k) - 1]?.id)
+    else if (k === 'w') post({ type: 'closeTab' })
     else if (k === 'c') startEdit('comment')
     else if (k === 'C') startEdit('file')
     else if (k === 's') startEdit('suggest')
@@ -184,6 +218,22 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
     else if (s.mode === 'files') onFilesKey(key)
     else onDiffKey(key)
   })
+
+  const tabWidth = Math.max(4, Math.min(TAB_TITLE, Math.floor((surface.columns > 0 ? surface.columns : 100) / props.tabs.length) - 7))
+  const tabBar = hasTabs ? (
+    <Box flexDirection="row">
+      {props.tabs.map((t, i) => (
+        <Button key={`tab-${i + 1}`} plain dimColor={t.id !== props.tab} onPress={() => showTab(t.id)}>
+          <Text inverse={t.id === props.tab}>{` ${i + 1} ${clip(t.title, tabWidth)}${t.comments > 0 ? ` ●${t.comments}` : ''} `}</Text>
+        </Button>
+      ))}
+      <Box flexGrow={1} flexShrink={1}>
+        <Text dimColor wrap="truncate-end">
+          {'  1-9 switch · w close review'}
+        </Text>
+      </Box>
+    </Box>
+  ) : null
 
   const header = (
     <Text bold wrap="truncate-end">
@@ -221,6 +271,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
   if (props.error !== undefined) {
     return (
       <Box flexDirection="column">
+        {tabBar}
         <Text color="error">{props.error}</Text>
         {footer}
       </Box>
@@ -232,6 +283,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
 
     return (
       <Box flexDirection="column" height={height}>
+        {tabBar}
         <Text bold>{props.files.length} files · {props.label}</Text>
         <Box flexDirection="column" flexGrow={1}>
           {props.files.slice(top, top + bodyRows).map((f, i) => (
@@ -250,6 +302,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
   if (props.file === null) {
     return (
       <Box flexDirection="column" height={height}>
+        {tabBar}
         <Text dimColor>No changes in {props.label}.</Text>
         <Box flexGrow={1} />
         {footer}
@@ -264,6 +317,7 @@ const Viewer: ClientModule<ViewerProps, State> = (props, surface: ClientSurface<
 
   return (
     <Box flexDirection="column" height={height}>
+      {tabBar}
       {header}
       <Box flexDirection="column" flexGrow={1}>
         {all.slice(top, top + bodyRows).map(line => {

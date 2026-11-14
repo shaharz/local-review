@@ -26,12 +26,16 @@ const PANE = {
   },
 } as const
 
+const OPEN = 'mcp__local-review__open_review'
+
+/** Each cwd is its own repo: `/repo` changes lib/a.ex, any other changes lib/b.ex */
 function fakeEngine(on: On) {
   on('process.run', async (_$, e) => {
     const args = e.argv.slice(1).join(' ')
+    const cwd = e.init?.cwd ?? '/repo'
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-    if (args.startsWith('rev-parse --show-toplevel')) return out('/repo\n')
-    if (args.startsWith('diff')) return out(DIFF)
+    if (args.startsWith('rev-parse --show-toplevel')) return out(`${cwd}\n`)
+    if (args.startsWith('diff')) return out(cwd === '/repo' ? DIFF : DIFF.replaceAll('lib/a.ex', 'lib/b.ex'))
 
     return out('')
   })
@@ -129,4 +133,104 @@ test('Esc arriving as a raw byte cancels a comment; other control bytes are not 
   expect(await ui.find({ in: 'viewer', text: /comment> h\[1;3Ai/ })).toBeDefined()
   await ui.key({ key: '\u001b', in: 'viewer' })
   expect(await ui.find({ in: 'viewer', text: /comment> / })).toBeUndefined()
+})
+
+test('a second review opens in its own tab and the first keeps its comments', async ($, on) => {
+  fakeEngine(on)
+  const submitted: string[] = []
+  on('prompt.submit', async (_$, e) => {
+    submitted.push(e.text)
+
+    return { text: e.text }
+  })
+
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  for (const k of ['j', 'j', 'j', 'c', 'n', 'i', 't', 'return']) await ui.key({ key: k, in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', key: 'tab-1' })).toBeUndefined()
+
+  await $.command.run({ command: 'local-review', args: 'uncommitted' } as never)
+  expect(await ui.find({ in: 'viewer', key: 'tab-1' })).toBeUndefined()
+  expect(await ui.find({ in: 'viewer', text: '◆ nit' })).toBeDefined()
+
+  const opened = await $.tool.call({ tool: OPEN, cwd: '/other' } as never)
+  expect(JSON.stringify(opened)).toContain('tab 2 of 2')
+  expect(await ui.find({ in: 'viewer', text: /lib\/b\.ex/ })).toBeDefined()
+  expect(await ui.find({ in: 'viewer', text: '◆ nit' })).toBeUndefined()
+  expect((await ui.find({ in: 'viewer', key: 'tab-1' }))?.text).toContain('repo ●1')
+  expect((await ui.find({ in: 'viewer', key: 'tab-2' }))?.text).toContain('other')
+
+  await ui.key({ key: '1', in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: '◆ nit' })).toBeDefined()
+  await ui.press({ key: 'tab-2' })
+  expect(await ui.find({ in: 'viewer', text: /lib\/b\.ex/ })).toBeDefined()
+  await ui.press({ key: 'tab-1' })
+
+  await ui.key({ key: 'S', in: 'viewer' })
+  expect(submitted).toHaveLength(1)
+  expect(submitted[0]).toContain('(repo: /repo)')
+  expect(submitted[0]).toContain('> nit')
+})
+
+test('a review opened while a comment is being typed waits in its tab', async ($, on) => {
+  fakeEngine(on)
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  for (const k of ['j', 'j', 'j', 'c', 'h', 'i']) await ui.key({ key: k, in: 'viewer' })
+  await $.tool.call({ tool: OPEN, cwd: '/other' } as never)
+
+  expect(await ui.find({ in: 'viewer', text: /comment> hi/ })).toBeDefined()
+  expect(await ui.find({ in: 'viewer', text: /lib\/a\.ex/ })).toBeDefined()
+  expect(await ui.find({ in: 'viewer', key: 'tab-2' })).toBeDefined()
+})
+
+test('w closes the tab in view, and the pane with the last one', async ($, on) => {
+  fakeEngine(on)
+  const closed: string[] = []
+  on('ui.close', async (_$, e) => {
+    closed.push(e.id)
+
+    return { value: undefined } as never
+  })
+
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  await $.tool.call({ tool: OPEN, cwd: '/other' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: /lib\/b\.ex/ })).toBeDefined()
+
+  await ui.key({ key: 'w', in: 'viewer' })
+  expect(await ui.find({ in: 'viewer', text: /lib\/a\.ex/ })).toBeDefined()
+  expect(await ui.find({ in: 'viewer', key: 'tab-1' })).toBeUndefined()
+  expect(closed).toHaveLength(0)
+
+  await ui.key({ key: 'w', in: 'viewer' })
+  expect(closed).toEqual(['local-review'])
+})
+
+test('a tab comes back on the line it was left on', async ($, on) => {
+  fakeEngine(on)
+  const submitted: string[] = []
+  on('prompt.submit', async (_$, e) => {
+    submitted.push(e.text)
+
+    return { text: e.text }
+  })
+
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await $.command.run({ command: 'local-review', args: '' } as never)
+  await $.tool.call({ tool: OPEN, cwd: '/other' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  for (const k of ['1', 'j', 'j', 'j', '2', 'j', '1', 'c', 'x', 'return', 'S']) await ui.key({ key: k, in: 'viewer' })
+
+  expect(submitted[0]).toContain('### lib/a.ex\n- **L2** `new line`')
 })
