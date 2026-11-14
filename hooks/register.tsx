@@ -21,10 +21,15 @@ async function git($: $, cwd: string, argv: string[]): Promise<{ exitCode: numbe
   return $.process.run(['git', ...argv], { cwd, timeoutMs: 60_000 })
 }
 
+/** Why a git call failed: what it wrote to stderr, or its exit code when it wrote nothing (a child ended by a signal exits 1, silent). */
+function failure(command: string, result: { exitCode: number; stderr: string }): string {
+  return result.stderr.trim() || `git ${command} exited ${result.exitCode} without an error message; press r to retry`
+}
+
 async function loadReview($: $, cwd: string, target: string): Promise<Review> {
   const top = await git($, cwd, ['rev-parse', '--show-toplevel'])
   if (top.exitCode !== 0) {
-    return { root: cwd, target, label: target || 'uncommitted changes', files: [], error: top.stderr.trim() }
+    return { root: cwd, target, label: target || 'uncommitted changes', files: [], error: failure('rev-parse', top) }
   }
   const root = top.stdout.trim()
   const name = root.split('/').pop() ?? root
@@ -42,7 +47,7 @@ async function loadReview($: $, cwd: string, target: string): Promise<Review> {
     const base = plan.base || ((await git($, root, ['rev-parse', '--verify', '-q', 'origin/main'])).exitCode === 0 ? 'origin/main' : 'main')
     const mb = await git($, root, ['merge-base', base, 'HEAD'])
     if (mb.exitCode !== 0) {
-      return { root, target, label: `branch vs ${base}`, files: [], error: mb.stderr.trim() }
+      return { root, target, label: `branch vs ${base}`, files: [], error: failure('merge-base', mb) }
     }
     const branch = (await git($, root, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
     argv = branchArgv(mb.stdout.trim())
@@ -55,7 +60,7 @@ async function loadReview($: $, cwd: string, target: string): Promise<Review> {
   }
 
   const out = await git($, root, argv)
-  if (out.exitCode !== 0) return { root, target, label, files: [], error: out.stderr.trim() }
+  if (out.exitCode !== 0) return { root, target, label, files: [], error: failure(argv[0] ?? '', out) }
   const files = parseDiff(out.stdout)
 
   if (withUntracked) {

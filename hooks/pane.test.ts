@@ -28,13 +28,14 @@ const PANE = {
 
 const OPEN = 'mcp__local-review__open_review'
 
-/** Each cwd is its own repo: `/repo` changes lib/a.ex, any other changes lib/b.ex */
+/** Each cwd is its own repo: `/repo` changes lib/a.ex, any other changes lib/b.ex; in `/silent` git diff dies without a word. */
 function fakeEngine(on: On) {
   on('process.run', async (_$, e) => {
     const args = e.argv.slice(1).join(' ')
     const cwd = e.init?.cwd ?? '/repo'
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
     if (args.startsWith('rev-parse --show-toplevel')) return out(`${cwd}\n`)
+    if (args.startsWith('diff') && cwd === '/silent') return { value: { ...out('').value, exitCode: 1 } }
     if (args.startsWith('diff')) return out(cwd === '/repo' ? DIFF : DIFF.replaceAll('lib/a.ex', 'lib/b.ex'))
 
     return out('')
@@ -233,4 +234,15 @@ test('a tab comes back on the line it was left on', async ($, on) => {
   for (const k of ['1', 'j', 'j', 'j', '2', 'j', '1', 'c', 'x', 'return', 'S']) await ui.key({ key: k, in: 'viewer' })
 
   expect(submitted[0]).toContain('### lib/a.ex\n- **L2** `new line`')
+})
+
+test('a git call that fails without saying why is shown as an error, not as an empty review', async ($, on) => {
+  fakeEngine(on)
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  const answer = await $.command.run({ command: 'local-review', args: '--cwd /silent' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.resize({ columns: 100, rows: 20, in: 'viewer' })
+
+  expect(JSON.stringify(answer)).toContain('Could not load uncommitted changes in silent: git diff exited 1')
+  expect(await ui.find({ in: 'viewer', text: /git diff exited 1/ })).toBeDefined()
 })
